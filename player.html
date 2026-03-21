@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bad Apple Melody Player</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #202020;
+            color: #eee;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            font-weight: 300;
+        }
+
+        .container {
+            background-color: #333;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .controls {
+            margin: 15px 0;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .btn {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .btn:hover {
+            background-color: #45a049;
+        }
+
+        .btn:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        .btn-select {
+            background-color: #2196F3;
+        }
+        .btn-select:hover {
+            background-color: #0b7dda;
+        }
+
+        #fileName {
+            margin-left: 10px;
+            font-style: italic;
+        }
+
+        .progress-container {
+            margin: 15px 0;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background-color: #555;
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        .time-display {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #aaa;
+        }
+
+        .info {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #aaa;
+            font-family: monospace;
+        }
+
+        .frequency-display {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #444;
+            border-radius: 4px;
+        }
+
+        .frequency-label {
+            font-size: 0.8em;
+            color: #aaa;
+            margin-bottom: 5px;
+        }
+
+        .frequency-value {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: #4CAF50;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Bad Apple Melody Player</h1>
+
+    <div class="container">
+        <div class="controls">
+            <label class="btn btn-select">
+                选择 .bin 文件
+                <input type="file" id="fileInput" accept=".bin">
+            </label>
+            <button id="playBtn" class="btn" disabled>播放</button>
+            <button id="pauseBtn" class="btn" disabled>暂停</button>
+            <button id="resetBtn" class="btn" disabled>重置</button>
+        </div>
+        <span id="fileName">未选择文件</span>
+
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="time-display">
+                <span id="currentTime">0:00.000</span>
+                <span id="totalTime">0:00.000</span>
+            </div>
+        </div>
+
+        <div class="frequency-display">
+            <div class="frequency-label">当前频率</div>
+            <div class="frequency-value" id="frequencyValue">0 Hz</div>
+        </div>
+
+        <div class="info" id="eventCounter">事件数: 0</div>
+    </div>
+
+    <script>
+        // 解析二进制文件中的事件
+        // 格式: 每个事件8字节 (4字节时间ms + 4字节频率Hz, 小端序)
+        class MelodyParser {
+            static async parseFile(file) {
+                const arrayBuffer = await file.arrayBuffer();
+                const dataView = new DataView(arrayBuffer);
+                const events = [];
+
+                const eventCount = Math.floor(arrayBuffer.byteLength / 8);
+
+                for (let i = 0; i < eventCount; i++) {
+                    const offset = i * 8;
+                    const timeMs = dataView.getInt32(offset, true); // little-endian
+                    const frequency = dataView.getInt32(offset + 4, true); // little-endian
+                    events.push({ timeMs, frequency });
+                }
+
+                return events;
+            }
+        }
+
+        // 音频播放器
+        class MelodyPlayer {
+            constructor() {
+                this.audioContext = null;
+                this.oscillator = null;
+                this.gainNode = null;
+                this.events = [];
+                this.isPlaying = false;
+                this.startTime = 0;
+                this.currentTime = 0;
+                this.eventIndex = 0;
+                this.animationFrame = null;
+            }
+
+            init() {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                this.gainNode = this.audioContext.createGain();
+                this.gainNode.connect(this.audioContext.destination);
+                this.gainNode.gain.value = 0.5;
+            }
+
+            loadEvents(events) {
+                this.events = events;
+                this.stop();
+            }
+
+            play() {
+                if (this.events.length === 0) return;
+
+                if (!this.audioContext) {
+                    this.init();
+                }
+
+                if (this.audioContext.state === 'suspended') {
+                    this.audioContext.resume();
+                }
+
+                this.isPlaying = true;
+                this.startTime = this.audioContext.currentTime - this.currentTime / 1000;
+                this.eventIndex = this.findEventIndex(this.currentTime);
+
+                this.scheduleEvents();
+                this.updateProgress();
+            }
+
+            pause() {
+                this.isPlaying = false;
+                this.stopOscillator();
+                if (this.animationFrame) {
+                    cancelAnimationFrame(this.animationFrame);
+                }
+            }
+
+            stop() {
+                this.isPlaying = false;
+                this.currentTime = 0;
+                this.eventIndex = 0;
+                this.stopOscillator();
+                if (this.animationFrame) {
+                    cancelAnimationFrame(this.animationFrame);
+                }
+                this.updateUI(0, 0);
+                // 更新按钮状态
+                document.getElementById('playBtn').disabled = false;
+                document.getElementById('pauseBtn').disabled = true;
+            }
+
+            stopOscillator() {
+                if (this.oscillator) {
+                    this.oscillator.stop();
+                    this.oscillator.disconnect();
+                    this.oscillator = null;
+                }
+            }
+
+            findEventIndex(timeMs) {
+                for (let i = 0; i < this.events.length; i++) {
+                    if (this.events[i].timeMs > timeMs) {
+                        return i > 0 ? i - 1 : 0;
+                    }
+                }
+                return this.events.length - 1;
+            }
+
+            scheduleEvents() {
+                if (!this.isPlaying) return;
+
+                const currentAudioTime = this.audioContext.currentTime;
+                const elapsedMs = (currentAudioTime - this.startTime) * 1000;
+
+                // 查找当前应该播放的事件
+                while (this.eventIndex < this.events.length &&
+                       this.events[this.eventIndex].timeMs <= elapsedMs) {
+                    const event = this.events[this.eventIndex];
+                    this.playFrequency(event.frequency);
+                    this.eventIndex++;
+                }
+
+                // 检查是否播放完毕
+                if (this.eventIndex >= this.events.length) {
+                    const lastEvent = this.events[this.events.length - 1];
+                    if (elapsedMs >= lastEvent.timeMs + 1000) {
+                        this.stop();
+                        return;
+                    }
+                }
+            }
+
+            playFrequency(frequency) {
+                this.stopOscillator();
+
+                if (frequency > 0) {
+                    this.oscillator = this.audioContext.createOscillator();
+                    this.oscillator.type = 'sine';
+                    this.oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
+                    this.oscillator.connect(this.gainNode);
+                    this.oscillator.start();
+                }
+
+                // 更新频率显示
+                document.getElementById('frequencyValue').textContent =
+                    frequency > 0 ? `${frequency} Hz` : '0 Hz (静音)';
+            }
+
+            updateProgress() {
+                if (!this.isPlaying) return;
+
+                const currentAudioTime = this.audioContext.currentTime;
+                this.currentTime = (currentAudioTime - this.startTime) * 1000;
+
+                this.scheduleEvents();
+
+                const totalTime = this.events.length > 0 ?
+                    this.events[this.events.length - 1].timeMs : 0;
+
+                this.updateUI(this.currentTime, totalTime);
+
+                this.animationFrame = requestAnimationFrame(() => this.updateProgress());
+            }
+
+            updateUI(currentMs, totalMs) {
+                const progress = totalMs > 0 ? (currentMs / totalMs * 100) : 0;
+                document.getElementById('progressFill').style.width = `${Math.min(progress, 100)}%`;
+                document.getElementById('currentTime').textContent = this.formatTime(currentMs);
+                document.getElementById('totalTime').textContent = this.formatTime(totalMs);
+            }
+
+            formatTime(ms) {
+                const totalSeconds = Math.floor(ms / 1000);
+                const minutes = Math.floor(totalSeconds / 60);
+                const seconds = totalSeconds % 60;
+                const milliseconds = Math.floor(ms % 1000);
+                return `${minutes}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
+            }
+
+            seekTo(timeMs) {
+                this.currentTime = timeMs;
+                this.eventIndex = this.findEventIndex(timeMs);
+
+                if (this.isPlaying) {
+                    this.startTime = this.audioContext.currentTime - timeMs / 1000;
+                }
+
+                // 更新当前频率
+                const event = this.events[this.eventIndex];
+                if (event) {
+                    document.getElementById('frequencyValue').textContent =
+                        event.frequency > 0 ? `${event.frequency} Hz` : '0 Hz (静音)';
+                }
+
+                const totalTime = this.events.length > 0 ?
+                    this.events[this.events.length - 1].timeMs : 0;
+                this.updateUI(timeMs, totalTime);
+            }
+        }
+
+        // 初始化
+        const player = new MelodyPlayer();
+        const fileInput = document.getElementById('fileInput');
+        const playBtn = document.getElementById('playBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const progressBar = document.getElementById('progressBar');
+        const fileName = document.getElementById('fileName');
+        const eventCounter = document.getElementById('eventCounter');
+
+        let loadedEvents = [];
+
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                fileName.textContent = file.name;
+                try {
+                    loadedEvents = await MelodyParser.parseFile(file);
+                    player.loadEvents(loadedEvents);
+                    eventCounter.textContent = `事件数: ${loadedEvents.length}`;
+                    playBtn.disabled = false;
+                    pauseBtn.disabled = true;
+                    resetBtn.disabled = false;
+
+                    // 显示总时长
+                    if (loadedEvents.length > 0) {
+                        const totalMs = loadedEvents[loadedEvents.length - 1].timeMs;
+                        document.getElementById('totalTime').textContent = player.formatTime(totalMs);
+                    }
+
+                    console.log('加载事件数:', loadedEvents.length);
+                } catch (error) {
+                    console.error('解析文件失败:', error);
+                    fileName.textContent = '文件解析失败';
+                }
+            }
+        });
+
+        playBtn.addEventListener('click', () => {
+            player.play();
+            playBtn.disabled = true;
+            pauseBtn.disabled = false;
+        });
+
+        pauseBtn.addEventListener('click', () => {
+            player.pause();
+            playBtn.disabled = false;
+            pauseBtn.disabled = true;
+        });
+
+        resetBtn.addEventListener('click', () => {
+            player.stop();
+            playBtn.disabled = false;
+            pauseBtn.disabled = true;
+            document.getElementById('frequencyValue').textContent = '0 Hz';
+        });
+
+        progressBar.addEventListener('click', (e) => {
+            if (loadedEvents.length === 0) return;
+
+            const rect = progressBar.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const percentage = clickX / rect.width;
+
+            const totalMs = loadedEvents[loadedEvents.length - 1].timeMs;
+            const seekMs = percentage * totalMs;
+
+            player.seekTo(seekMs);
+        });
+
+        // 键盘快捷键
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && loadedEvents.length > 0) {
+                e.preventDefault();
+                if (player.isPlaying) {
+                    pauseBtn.click();
+                } else {
+                    playBtn.click();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
