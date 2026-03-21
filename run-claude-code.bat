@@ -1,1 +1,0 @@
-claude --permission-mode acceptEdits --allowedTools "Read,Write,Edit,Bash,Git,Npm,Pip"
