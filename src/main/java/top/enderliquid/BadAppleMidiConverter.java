@@ -169,6 +169,12 @@ public class BadAppleMidiConverter {
             }
         }
         try (BufferedOutputStream bof = new BufferedOutputStream(new FileOutputStream(outputPath))) {
+            // 写入文件头：事件总数 (4 bytes, 小端)
+            ByteBuffer header = ByteBuffer.allocate(4);
+            header.order(ByteOrder.LITTLE_ENDIAN);
+            header.putInt(events.size());
+            bof.write(header.array());
+
             System.out.println("转换结果:");
             System.out.printf("%10s%8s%n","时间(ms)","频率(Hz)");
             System.out.println("------------------------");

@@ -171,17 +171,18 @@
 
     <script>
         // 解析二进制文件中的事件
-        // 格式: 每个事件8字节 (4字节时间ms + 4字节频率Hz, 小端序)
+        // 格式: 文件头4字节(事件总数, 小端序) + 每个事件8字节 (4字节时间ms + 4字节频率Hz, 小端序)
         class MelodyParser {
             static async parseFile(file) {
                 const arrayBuffer = await file.arrayBuffer();
                 const dataView = new DataView(arrayBuffer);
+
+                // 读取文件头：事件总数
+                const eventCount = dataView.getInt32(0, true); // little-endian
                 const events = [];
 
-                const eventCount = Math.floor(arrayBuffer.byteLength / 8);
-
                 for (let i = 0; i < eventCount; i++) {
-                    const offset = i * 8;
+                    const offset = 4 + i * 8;
                     const timeMs = dataView.getInt32(offset, true); // little-endian
                     const frequency = dataView.getInt32(offset + 4, true); // little-endian
                     events.push({ timeMs, frequency });
