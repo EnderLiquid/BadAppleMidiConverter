@@ -129,6 +129,7 @@ public class BadAppleMidiConverter {
         long lastTick = 0;
         int tempoUs = 500000; // 默认Tempo：120 BPM -> 500,000 微秒/四分音符
 
+        int lastNote = -1;
         for (MidiEvent event : allEvents) {
             long tick = event.getTick();
             MidiMessage message = event.getMessage();
@@ -157,8 +158,15 @@ public class BadAppleMidiConverter {
                     // MIDI音高转频率计算公式：f = 440 * 2^((note - 69) / 12)
                     double freq = 440.0 * Math.pow(2.0, (note - 69.0) / 12.0);
                     addEvent(events, currentMs, freq);
+                    lastNote = note;
                 } else if (cmd == ShortMessage.NOTE_OFF || (cmd == ShortMessage.NOTE_ON && velocity == 0)) {
-                    addEvent(events, currentMs, 0); // 频率置为0表示消音
+                    // 如果不相等，说明音符发生了重叠
+                    // 此时新的音符正在播放或已播放完毕
+                    // 应该忽略旧音符的停止逻辑
+                    if (note == lastNote) {
+                        addEvent(events, currentMs, 0); // 频率置为0表示消音
+                        lastNote = -1; // 防御性编程: 重置为无音符状态，避免发送重复的 NOTE OFF
+                    }
                 }
             }
         }
