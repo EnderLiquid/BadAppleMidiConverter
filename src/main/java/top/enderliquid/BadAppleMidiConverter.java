@@ -83,16 +83,14 @@ public class BadAppleMidiConverter {
         return 2; // 其他事件
     }
 
-    // 状态合并方法：如果同一毫秒发生多个状态改变，以最后一个为准，并过滤相同的频率状态
+    // 状态合并方法：如果同一毫秒发生多个状态改变，以最后一个为准
     private static void addEvent(List<ToneEvent> events, double timeMs, double frequency) {
         ToneEvent lastEvent = events.get(events.size() - 1);
         if (lastEvent.timeMs == timeMs) {
             lastEvent.frequency = frequency; // 同一时间覆盖旧状态
-        } else {
-            if (lastEvent.frequency != frequency) {
-                events.add(new ToneEvent(timeMs, frequency)); // 状态改变才记录
-            }
+            return;
         }
+        events.add(new ToneEvent(timeMs, frequency));
     }
 
     public static void convertMidiToFile(String inputPath, String outputPath) {
@@ -120,7 +118,7 @@ public class BadAppleMidiConverter {
         // 按 Tick 时间排序；若 Tick 相同，则先处理关闭音符，再处理开启音符
         allEvents.sort(
                 Comparator.comparingLong(MidiEvent::getTick)
-                        .thenComparingInt(e -> getEventTypePrior(e.getMessage()))
+                          .thenComparingInt(e -> getEventTypePrior(e.getMessage()))
         );
 
         List<ToneEvent> events = new ArrayList<>();
@@ -165,7 +163,7 @@ public class BadAppleMidiConverter {
                     // 应该忽略旧音符的停止逻辑
                     if (note == lastNote) {
                         addEvent(events, currentMs, 0); // 频率置为0表示消音
-                        lastNote = -1; // 防御性编程: 重置为无音符状态，避免发送重复的 NOTE OFF
+                        lastNote = -1; // 重置为无音符状态，避免发送重复的 NOTE OFF
                     }
                 }
             }
