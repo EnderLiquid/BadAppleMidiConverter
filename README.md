@@ -8,6 +8,21 @@
 - 支持 Tempo 变化
 - 输出时间-频率对的二进制数据
 
+## 配置格式
+
+配置文件 `config.properties` 支持以下参数：
+
+```properties
+# 输入 MIDI 文件路径
+# 要求：音符不可重叠（同时只能有一个音符播放）
+# 程序会自动处理 Tempo 变化事件
+inputPath=./input/bad_apple.mid
+
+# 输出二进制文件路径
+# 目录不存在时会自动创建
+outputPath=./output/bad_apple_melody.bin
+```
+
 ## 输出格式
 
 二进制文件由文件头和事件数据组成：
@@ -30,13 +45,8 @@
 ## 使用方法
 
 1. 运行程序，自动生成 `config.properties`
-2. 编辑配置文件指定输入输出路径
+2. 编辑配置文件
 3. 再次运行执行转换
-
-```properties
-inputPath=./input/bad_apple.mid
-outputPath=./output/bad_apple_melody.bin
-```
 
 ## 依赖
 
